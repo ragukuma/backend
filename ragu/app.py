@@ -11,7 +11,7 @@ app = Flask(__name__, static_folder='static', template_folder='templates')
 # ===== CORS CONFIGURATION =====
 CORS(app)
 CORS(app, resources={
-    r"/api/*": {
+    r"/*": {
         "origins": "*",
         "methods": ["GET", "POST", "DELETE", "PUT", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization"],
@@ -526,3 +526,4 @@ if __name__ == '__main__':
     
     # Run the app
     app.run(host='0.0.0.0', port=port, debug=False)
+
