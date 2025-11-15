@@ -7,8 +7,9 @@ import hashlib
 from threading import Lock
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
+
+# ===== CORS CONFIGURATION =====
 CORS(app)
-# Enhanced CORS Configuration
 CORS(app, resources={
     r"/api/*": {
         "origins": "*",
@@ -28,7 +29,7 @@ file_lock = Lock()
 # Ensure data directory exists
 os.makedirs('data', exist_ok=True)
 
-# Initialize Excel files
+# ===== EXCEL INITIALIZATION =====
 def init_excel_files():
     """Initialize Excel files if they don't exist"""
     try:
@@ -62,7 +63,7 @@ def init_excel_files():
     except Exception as e:
         print(f"✗ Excel initialization error: {e}")
 
-# Helper functions for Excel operations
+# ===== HELPER FUNCTIONS =====
 def read_excel_safe(filepath):
     """Thread-safe Excel reading"""
     with file_lock:
@@ -91,131 +92,74 @@ def get_next_id(df):
         return 1
     return int(df['id'].max()) + 1 if not df['id'].isna().all() else 1
 
-# Routes
+# ===== MAIN ROUTES =====
+
 @app.route('/')
 def home():
-    try:
-        return send_from_directory('templates', 'samp1.html')
-    except:
-        return jsonify({
-            'message': 'AR VELS Manpower Global Consultancy API',
-            'version': '2.0',
-            'storage': 'Excel',
-            'status': 'online',
-            'endpoints': {
-                'GET /': 'Main website',
-                'GET /admin': 'Admin dashboard',
-                'POST /api/admin/login': 'Admin login',
-                'GET /api/reviews': 'Get all reviews',
-                'POST /api/reviews': 'Submit a new review',
-                'GET /api/reviews/<id>': 'Get a specific review',
-                'DELETE /api/reviews/<id>': 'Delete a review',
-                'GET /api/stats': 'Get statistics',
-                'GET /api/health': 'Health check'
-            }
-        })
+    """Main API endpoint - returns API info"""
+    return jsonify({
+        'message': 'AR VELS Manpower Global Consultancy API',
+        'version': '2.0',
+        'storage': 'Excel',
+        'status': 'online ✓',
+        'author': 'AR VELS Team',
+        'endpoints': {
+            'GET /': 'Main API info',
+            'GET /api/health': 'Health check',
+            'GET /api/reviews': 'Get all reviews',
+            'GET /api/reviews?limit=5': 'Get limited reviews',
+            'POST /api/reviews': 'Submit a new review',
+            'GET /api/reviews/<id>': 'Get specific review',
+            'DELETE /api/reviews/<id>': 'Delete a review',
+            'GET /api/stats': 'Get statistics',
+            'POST /api/admin/login': 'Admin login',
+            'GET /api/backup/reviews': 'Download reviews backup'
+        }
+    })
 
 @app.route('/admin')
 def admin():
-    try:
-        return send_from_directory('templates', 'admin.html')
-    except:
-        return jsonify({'error': 'Admin page not found'}), 404
+    """Admin dashboard page"""
+    return jsonify({
+        'message': 'Admin Dashboard',
+        'instruction': 'Open admin.html file in browser',
+        'login': 'POST /api/admin/login with username and password'
+    })
 
-# Admin Authentication
-@app.route('/api/admin/login', methods=['POST', 'OPTIONS'])
-def admin_login():
+# ===== HEALTH CHECK =====
+
+@app.route('/api/health', methods=['GET', 'OPTIONS'])
+def health_check():
+    """Health check endpoint"""
     if request.method == 'OPTIONS':
         return '', 204
     
     try:
-        data = request.get_json()
-        
-        if not data:
-            return jsonify({
-                'success': False,
-                'message': 'No data provided'
-            }), 400
-        
-        username = data.get('username')
-        password = data.get('password')
-        
-        if not username or not password:
-            return jsonify({
-                'success': False,
-                'message': 'Username and password required'
-            }), 400
-        
-        df_admins = read_excel_safe(ADMINS_FILE)
-        admin = df_admins[df_admins['username'] == username]
-        
-        if not admin.empty:
-            password_hash = hashlib.sha256(password.encode()).hexdigest()
-            if admin.iloc[0]['password_hash'] == password_hash:
-                return jsonify({
-                    'success': True,
-                    'message': 'Login successful',
-                    'username': username
-                })
+        reviews_exists = os.path.exists(REVIEWS_FILE)
+        admins_exists = os.path.exists(ADMINS_FILE)
         
         return jsonify({
-            'success': False,
-            'message': 'Invalid credentials'
-        }), 401
+            'status': 'healthy ✓',
+            'message': 'API is running correctly',
+            'storage': 'Excel',
+            'files': {
+                'reviews': reviews_exists,
+                'admins': admins_exists
+            },
+            'timestamp': datetime.utcnow().isoformat(),
+            'cors': 'enabled ✓'
+        })
     except Exception as e:
-        print(f"Login error: {e}")
         return jsonify({
-            'success': False,
+            'status': 'unhealthy ✗',
             'error': str(e)
         }), 500
 
-# Change Admin Password
-@app.route('/api/admin/change-password', methods=['POST', 'OPTIONS'])
-def change_password():
-    if request.method == 'OPTIONS':
-        return '', 204
-    
-    try:
-        data = request.get_json()
-        username = data.get('username')
-        old_password = data.get('old_password')
-        new_password = data.get('new_password')
-        
-        if not all([username, old_password, new_password]):
-            return jsonify({
-                'success': False,
-                'message': 'All fields are required'
-            }), 400
-        
-        df_admins = read_excel_safe(ADMINS_FILE)
-        admin_idx = df_admins[df_admins['username'] == username].index
-        
-        if not admin_idx.empty:
-            old_hash = hashlib.sha256(old_password.encode()).hexdigest()
-            if df_admins.loc[admin_idx[0], 'password_hash'] == old_hash:
-                new_hash = hashlib.sha256(new_password.encode()).hexdigest()
-                df_admins.loc[admin_idx[0], 'password_hash'] = new_hash
-                
-                if write_excel_safe(ADMINS_FILE, df_admins):
-                    return jsonify({
-                        'success': True,
-                        'message': 'Password changed successfully'
-                    })
-        
-        return jsonify({
-            'success': False,
-            'message': 'Invalid credentials'
-        }), 401
-    except Exception as e:
-        print(f"Password change error: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+# ===== REVIEWS ENDPOINTS =====
 
-# Get all reviews
 @app.route('/api/reviews', methods=['GET', 'OPTIONS'])
 def get_reviews():
+    """Get all reviews with optional limit"""
     if request.method == 'OPTIONS':
         return '', 204
     
@@ -227,7 +171,7 @@ def get_reviews():
         if df_reviews.empty:
             return jsonify([])
         
-        # Sort by created_at descending
+        # Sort by created_at descending (newest first)
         df_reviews['created_at'] = pd.to_datetime(df_reviews['created_at'])
         df_reviews = df_reviews.sort_values('created_at', ascending=False)
         
@@ -249,9 +193,9 @@ def get_reviews():
         print(f"Get reviews error: {e}")
         return jsonify({'error': str(e)}), 500
 
-# Get single review
 @app.route('/api/reviews/<int:review_id>', methods=['GET', 'OPTIONS'])
 def get_review(review_id):
+    """Get a specific review by ID"""
     if request.method == 'OPTIONS':
         return '', 204
     
@@ -273,9 +217,9 @@ def get_review(review_id):
         print(f"Get review error: {e}")
         return jsonify({'error': 'Review not found'}), 404
 
-# Create new review
 @app.route('/api/reviews', methods=['POST', 'OPTIONS'])
 def create_review():
+    """Submit a new review"""
     if request.method == 'OPTIONS':
         return '', 204
     
@@ -288,7 +232,7 @@ def create_review():
                 'error': 'No data provided'
             }), 400
         
-        print(f"Received review data: {data}")
+        print(f"📝 Received review data: {data}")
         
         # Validate required fields
         required_fields = ['name', 'email', 'phone', 'review', 'rating']
@@ -334,10 +278,11 @@ def create_review():
         
         # Save to Excel
         if write_excel_safe(REVIEWS_FILE, df_reviews):
-            print(f"Review created successfully: ID {new_id}")
+            print(f"✅ Review created successfully: ID {new_id}")
             return jsonify({
                 'success': True,
-                'message': 'Review submitted successfully',
+                'message': 'Review submitted successfully ✓',
+                'id': new_id,
                 'review': new_review
             }), 201
         else:
@@ -346,15 +291,15 @@ def create_review():
                 'error': 'Failed to save review'
             }), 500
     except Exception as e:
-        print(f"Create review error: {e}")
+        print(f"❌ Create review error: {e}")
         return jsonify({
             'success': False,
             'error': f'Server error: {str(e)}'
         }), 500
 
-# Delete review
 @app.route('/api/reviews/<int:review_id>', methods=['DELETE', 'OPTIONS'])
 def delete_review(review_id):
+    """Delete a review by ID"""
     if request.method == 'OPTIONS':
         return '', 204
     
@@ -372,9 +317,10 @@ def delete_review(review_id):
         
         # Save to Excel
         if write_excel_safe(REVIEWS_FILE, df_reviews):
+            print(f"✅ Review {review_id} deleted successfully")
             return jsonify({
                 'success': True,
-                'message': 'Review deleted successfully'
+                'message': 'Review deleted successfully ✓'
             }), 200
         else:
             return jsonify({
@@ -382,15 +328,17 @@ def delete_review(review_id):
                 'error': 'Failed to delete review'
             }), 500
     except Exception as e:
-        print(f"Delete review error: {e}")
+        print(f"❌ Delete review error: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
         }), 500
 
-# Get statistics
+# ===== STATISTICS ENDPOINT =====
+
 @app.route('/api/stats', methods=['GET', 'OPTIONS'])
 def get_stats():
+    """Get statistics about reviews"""
     if request.method == 'OPTIONS':
         return '', 204
     
@@ -402,7 +350,11 @@ def get_stats():
                 'total_reviews': 0,
                 'average_rating': 0,
                 'rating_distribution': {
-                    '1_star': 0, '2_star': 0, '3_star': 0, '4_star': 0, '5_star': 0
+                    '1_star': 0,
+                    '2_star': 0,
+                    '3_star': 0,
+                    '4_star': 0,
+                    '5_star': 0
                 },
                 'today_reviews': 0
             })
@@ -427,33 +379,105 @@ def get_stats():
             'today_reviews': today_reviews
         })
     except Exception as e:
-        print(f"Stats error: {e}")
+        print(f"❌ Stats error: {e}")
         return jsonify({'error': str(e)}), 500
 
-# Health check
-@app.route('/api/health', methods=['GET'])
-def health_check():
+# ===== ADMIN ENDPOINTS =====
+
+@app.route('/api/admin/login', methods=['POST', 'OPTIONS'])
+def admin_login():
+    """Admin login endpoint"""
+    if request.method == 'OPTIONS':
+        return '', 204
+    
     try:
-        # Test file access
-        reviews_exists = os.path.exists(REVIEWS_FILE)
-        admins_exists = os.path.exists(ADMINS_FILE)
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'success': False,
+                'message': 'No data provided'
+            }), 400
+        
+        username = data.get('username')
+        password = data.get('password')
+        
+        if not username or not password:
+            return jsonify({
+                'success': False,
+                'message': 'Username and password required'
+            }), 400
+        
+        df_admins = read_excel_safe(ADMINS_FILE)
+        admin = df_admins[df_admins['username'] == username]
+        
+        if not admin.empty:
+            password_hash = hashlib.sha256(password.encode()).hexdigest()
+            if admin.iloc[0]['password_hash'] == password_hash:
+                return jsonify({
+                    'success': True,
+                    'message': 'Login successful ✓',
+                    'username': username
+                })
         
         return jsonify({
-            'status': 'healthy',
-            'storage': 'Excel',
-            'files': {
-                'reviews': reviews_exists,
-                'admins': admins_exists
-            },
-            'timestamp': datetime.utcnow().isoformat()
-        })
+            'success': False,
+            'message': 'Invalid credentials'
+        }), 401
     except Exception as e:
+        print(f"❌ Login error: {e}")
         return jsonify({
-            'status': 'unhealthy',
+            'success': False,
             'error': str(e)
         }), 500
 
-# Download backup
+@app.route('/api/admin/change-password', methods=['POST', 'OPTIONS'])
+def change_password():
+    """Change admin password"""
+    if request.method == 'OPTIONS':
+        return '', 204
+    
+    try:
+        data = request.get_json()
+        username = data.get('username')
+        old_password = data.get('old_password')
+        new_password = data.get('new_password')
+        
+        if not all([username, old_password, new_password]):
+            return jsonify({
+                'success': False,
+                'message': 'All fields are required'
+            }), 400
+        
+        df_admins = read_excel_safe(ADMINS_FILE)
+        admin_idx = df_admins[df_admins['username'] == username].index
+        
+        if not admin_idx.empty:
+            old_hash = hashlib.sha256(old_password.encode()).hexdigest()
+            if df_admins.loc[admin_idx[0], 'password_hash'] == old_hash:
+                new_hash = hashlib.sha256(new_password.encode()).hexdigest()
+                df_admins.loc[admin_idx[0], 'password_hash'] = new_hash
+                
+                if write_excel_safe(ADMINS_FILE, df_admins):
+                    print(f"✅ Password changed for admin: {username}")
+                    return jsonify({
+                        'success': True,
+                        'message': 'Password changed successfully ✓'
+                    })
+        
+        return jsonify({
+            'success': False,
+            'message': 'Invalid credentials'
+        }), 401
+    except Exception as e:
+        print(f"❌ Password change error: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+# ===== BACKUP ENDPOINT =====
+
 @app.route('/api/backup/reviews', methods=['GET'])
 def backup_reviews():
     """Download reviews Excel file as backup"""
@@ -462,30 +486,43 @@ def backup_reviews():
     except Exception as e:
         return jsonify({'error': str(e)}), 404
 
-# Error handlers
+# ===== ERROR HANDLERS =====
+
 @app.errorhandler(404)
 def not_found(e):
-    return jsonify({'error': 'Resource not found'}), 404
+    """Handle 404 errors"""
+    return jsonify({
+        'error': 'Resource not found',
+        'status': 404
+    }), 404
 
 @app.errorhandler(500)
 def internal_error(e):
-    return jsonify({'error': 'Internal server error'}), 500
+    """Handle 500 errors"""
+    return jsonify({
+        'error': 'Internal server error',
+        'status': 500
+    }), 500
 
-# Initialize on startup
+# ===== STARTUP =====
+
+# Initialize Excel files on startup
 init_excel_files()
 
 if __name__ == '__main__':
     # Get port from environment variable (Render provides this)
     port = int(os.environ.get('PORT', 5000))
     
-    print("\n" + "="*50)
-    print("AR VELS Manpower Global Consultancy - API Server")
-    print("="*50)
-    print(f"Storage: Excel Files")
-    print(f"Port: {port}")
-    print(f"Environment: {'Production' if os.environ.get('RENDER') else 'Development'}")
-    print("="*50 + "\n")
+    print("\n" + "="*60)
+    print("🚀 AR VELS Manpower Global Consultancy - API Server")
+    print("="*60)
+    print(f"📁 Storage: Excel Files")
+    print(f"🔌 Port: {port}")
+    print(f"🌍 Environment: {'Production (Render)' if os.environ.get('RENDER') else 'Development (Local)'}")
+    print(f"✅ CORS: Enabled for all origins")
+    print("="*60)
+    print("\n✓ API ready! Visit: http://localhost:{}/api/health\n".format(port))
+    print("="*60 + "\n")
     
-    # Use gunicorn in production, Flask dev server locally
-
+    # Run the app
     app.run(host='0.0.0.0', port=port, debug=False)
