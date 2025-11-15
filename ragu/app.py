@@ -7,7 +7,7 @@ import hashlib
 from threading import Lock
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
-
+CORS(app)
 # Enhanced CORS Configuration
 CORS(app, resources={
     r"/api/*": {
@@ -487,4 +487,5 @@ if __name__ == '__main__':
     print("="*50 + "\n")
     
     # Use gunicorn in production, Flask dev server locally
+
     app.run(host='0.0.0.0', port=port, debug=False)
